@@ -31,6 +31,8 @@ export interface ValidateOptions {
    * print those). Used when reading a code someone else made; never when generating one.
    */
   inferRegisteredIssuer?: boolean;
+  /** Today's date as YYYY-MM-DD, for the past due date warning. Defaults to the computer's local date. */
+  today?: string;
 }
 
 const PAYER = ["payerName", "payerAddress", "payerCity"] as const satisfies readonly FieldName[];
@@ -59,6 +61,11 @@ export function isIsoDate(value: string): boolean {
   if (!m) return false;
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+}
+
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function validateUpn(fields: UpnFields, options: ValidateOptions = {}): ValidationResult {
@@ -117,6 +124,8 @@ export function validateUpn(fields: UpnFields, options: ValidateOptions = {}): V
         break;
       case "date":
         if (typeof value !== "string" || !isIsoDate(value)) add(name, `${def.label} must be a date written YYYY-MM-DD; got ${JSON.stringify(value)}.`);
+        // Not an error: re-issuing an order for an overdue invoice is legitimate, but the payer should know.
+        else if (name === "dueDate" && value < (options.today ?? localToday())) warnings.push(`Rok plačila (due date) ${value} is already in the past.`);
         break;
       case "purposeCode":
         checkPurposeCode(value);

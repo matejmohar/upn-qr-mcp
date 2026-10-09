@@ -147,6 +147,7 @@ Every rule cites its source in the code. The sources, all published by Združenj
 - Images only: PNG and JPEG. For a PDF bill, send a screenshot.
 - The PDF form isn't a certified UPN form (see above).
 - Purpose codes outside the ZBS list are accepted with a warning, since the list is from 2019.
+- A due date in the past is accepted with a warning, so an overdue invoice can still get a payment order.
 - IBANs from countries other than Slovenia are checked for their check digits (ISO 13616), not for their country's
   exact length.
 

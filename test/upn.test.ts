@@ -205,6 +205,15 @@ describe("validation", () => {
     expect(fieldsWithErrors({ ...BILL, paymentDate: "2026-13-01" })).toEqual(["paymentDate"]);
   });
 
+  it("warns, without an error, when the due date is already in the past", () => {
+    const overdue = validateUpn({ ...BILL, dueDate: "2026-09-30" });
+    expect(overdue).toMatchObject({ valid: true, errors: [] });
+    expect(overdue.warnings).toEqual([expect.stringMatching(/2026-09-30 is already in the past/)]);
+    expect(validateUpn({ ...BILL, dueDate: "2026-10-09" }).warnings).toEqual([]);
+    expect(validateUpn({ ...BILL, dueDate: "2026-10-09" }, { today: "2026-10-10" }).warnings).toEqual([expect.stringMatching(/in the past/)]);
+    expect(validateUpn({ ...BILL, paymentDate: "2026-01-01" }).warnings).toEqual([]);
+  });
+
   it("checks the purpose code", () => {
     expect(fieldsWithErrors({ ...BILL, purposeCode: "gdsv" })).toEqual(["purposeCode"]);
     expect(fieldsWithErrors({ ...BILL, purposeCode: "GDS" })).toEqual(["purposeCode"]);
