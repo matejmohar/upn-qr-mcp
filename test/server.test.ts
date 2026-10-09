@@ -1,7 +1,9 @@
 /**
  * End-to-end: a real MCP Client talks to the server in-process.
  */
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,12 +48,13 @@ function text(result: CallResult): string {
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/zbs/${name}`, import.meta.url));
 
 describe("MCP server", () => {
-  it("lists the tools, all read-only and offline", async () => {
+  it("lists the tools, all offline and read-only except the one that can save a PDF", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["build_reference", "generate_upn", "read_upn", "validate_iban", "validate_reference", "validate_upn"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["build_reference", "generate_upn", "generate_upn_form", "read_upn", "validate_iban", "validate_reference", "validate_upn"]);
     for (const tool of tools) {
-      expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true, destructiveHint: false, openWorldHint: false });
+      const readOnly = tool.name !== "generate_upn_form";
+      expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: readOnly, destructiveHint: false, openWorldHint: false });
       expect(tool.outputSchema, tool.name).toBeDefined();
     }
   });
@@ -124,6 +127,52 @@ describe("MCP server", () => {
     const client = await connect();
     const result = await client.callTool({ name: "generate_upn", arguments: { ...BILL, pngScale: 10 } });
     expect(Buffer.from((result.structuredContent as any).png, "base64").readUInt32BE(16)).toBe(850);
+  });
+
+  it("generate_upn_form returns the form as an embedded PDF", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "generate_upn_form", arguments: { ...BILL } });
+    expect(result.isError).toBeFalsy();
+    const out = result.structuredContent as any;
+    expect(out).toMatchObject({ orderType: "payment", paper: "a4", warnings: [], fields: { recipientIban: SI_IBAN } });
+    expect(out.savedTo).toBeUndefined();
+    const resource = (result.content as any[]).find((c) => c.type === "resource").resource;
+    expect(resource.mimeType).toBe("application/pdf");
+    const pdf = Buffer.from(resource.blob, "base64");
+    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    expect(pdf.length).toBe(out.bytes);
+  });
+
+  it("generate_upn_form saves to outputPath, and never overwrites", async () => {
+    const client = await connect();
+    const dir = mkdtempSync(join(tmpdir(), "upn-form-"));
+    try {
+      const path = join(dir, "UPN-2026-104.pdf");
+      const saved = await client.callTool({ name: "generate_upn_form", arguments: { ...BILL, paper: "form", outputPath: path } });
+      expect(saved.structuredContent).toMatchObject({ savedTo: path, paper: "form" });
+      expect((saved.content as any[]).some((c) => c.type === "resource")).toBe(false);
+      const first = readFileSync(path);
+      expect(first.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+
+      const again = await client.callTool({ name: "generate_upn_form", arguments: { ...BILL, amount: 1, outputPath: path } });
+      expect(again.isError).toBe(true);
+      expect(text(again)).toMatch(/already exists.*Nothing was overwritten/);
+      expect(readFileSync(path).equals(first)).toBe(true);
+
+      for (const bad of ["form.pdf", join(dir, "form.png"), join(dir, "missing", "form.pdf")]) {
+        const refused = await client.callTool({ name: "generate_upn_form", arguments: { ...BILL, outputPath: bad } });
+        expect(refused.isError, bad).toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("generate_upn_form refuses invalid data and says what to fix", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "generate_upn_form", arguments: { ...BILL, recipientIban: undefined } });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/^No PDF was made; fix these fields first:\n- recipientIban: /);
   });
 
   it("read_upn reads an official example, from a JPEG photo too", async () => {

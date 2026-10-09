@@ -27,13 +27,16 @@ src/
     checksum.ts      field 20, the length check
     charset.ts       ISO 8859-2
     purpose-codes.ts the ZBS list of purpose codes
+    format.ts        values as printed on the form (***1.234,50, 25.06.2026 …)
   iban.ts            IBAN checks (ISO 13616) and Slovenian bank names
   si-banks.ts        the Bank of Slovenia's list of bank codes
   reference.ts       SI and RF references: checks and check digits
   qr.ts              QR generation (PNG, SVG) and reading
+  form.ts            the printable UPN form (PDF)
   vendor/            Project Nayuki's QR library
   server.ts          createServer(): tools and resources
   index.ts           the `upn-qr-mcp` command (stdio)
+fonts/               Source Sans 3 and Liberation Mono (SIL OFL), for the PDF form
 test/
   fixtures/zbs/      the example QR codes printed in the standard
 ```

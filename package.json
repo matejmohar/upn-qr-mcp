@@ -32,6 +32,7 @@
   "types": "dist/server.d.ts",
   "files": [
     "dist",
+    "fonts",
     "README.md",
     "LICENSE"
   ],
@@ -52,6 +53,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.3.1",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "pdf-lib": "^1.17.1",
     "zod": "^4.2.0",
     "zxing-wasm": "^3.1.5"
   },

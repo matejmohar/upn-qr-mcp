@@ -12,6 +12,7 @@ Connect it to Claude (or any MCP-capable assistant) and let it read, check and p
 
 - *"Read these three bills and tell me what's due this week."*
 - *"Create a UPN order for invoice 2026-104."*
+- *"Make a printable UPN form for invoice 2026-104 and save it to my Documents."*
 - *"Is this IBAN right? SI56 0200 0000 0000 068"*
 - *"Make a reference for invoice 2026-104 with model SI12."*
 - *"Check this payment order before I send it to the customer."*
@@ -29,6 +30,7 @@ v katerem pišete. Primeri:
 
 - *»Preberi te tri položnice in povej, kaj zapade ta teden.«*
 - *»Pripravi UPN za račun 2026-104.«*
+- *»Naredi položnico za račun 2026-104 v PDF za tisk.«*
 - *»Ali je ta IBAN pravilen?«*
 - *»Naredi sklic po modelu SI12 za račun 2026-104.«*
 
@@ -76,6 +78,7 @@ claude mcp add upn-qr -- npx -y upn-qr-mcp
 |---|---|
 | `read_upn` | Reads the UPN QR code on a bill from a photo or scan (PNG or JPEG), splits it into fields and checks them. Several codes in one image (a page of forms) are all read. |
 | `generate_upn` | Makes a UPN QR code for a payment order, as PNG and SVG (the SVG prints at the standard's 36 mm). Checks the fields first and refuses invalid data, saying what to fix. |
+| `generate_upn_form` | Makes the whole printable UPN form as a PDF, filled in and with its QR code, laid out as in the ZBS standard: on an A4 page with room for a letter above (the standard's "UPN QR A4 z dopisom"), or the 210 × 99 mm form alone. Saves it to a file you name (never overwriting one) or returns it. |
 | `validate_upn` | Checks a payment order's fields against the standard: required fields for the kind of order, lengths, characters, amount, dates, purpose code, IBANs, references. |
 | `validate_iban` | Checks an IBAN (ISO 13616) and names the Slovenian bank. |
 | `validate_reference` | Checks a payment reference: SI models SI00–SI99 with their check digits, and RF creditor references (ISO 11649). |
@@ -115,6 +118,11 @@ With both installed:
   leave your machine through this server.
 - **What the assistant sees:** the results of the tools it calls (the fields of a bill, a generated code) go to your
   AI provider (e.g. Anthropic for Claude) as part of the conversation, like anything else you paste into a chat.
+- The printable form follows the coordinates table of the ZBS technical standard. Its fonts can't be bundled, so it uses
+  free look-alikes: Source Sans 3 for Myriad Pro and Liberation Mono, which has Courier New's metrics, for the filled-in
+  data (both SIL Open Font License, in `fonts/`). It is a printout for the payer, not a certified form: ZBS has
+  companies that issue UPN forms get them checked by its authorised company first, and printed forms belong on OCR
+  paper. If you send UPN forms to your customers, check with your bank.
 - QR codes are generated with [Project Nayuki's QR library](https://www.nayuki.io/page/qr-code-generator-library),
   which allows exactly the parameters the standard requires (version 15, level M, ECI 4 and one byte segment), and read
   with [ZXing-C++ compiled to WebAssembly](https://github.com/Sec-ant/zxing-wasm), which also decodes the PNG or JPEG.
@@ -137,7 +145,7 @@ Every rule cites its source in the code. The sources, all published by Združenj
 ## Limitations
 
 - Images only: PNG and JPEG. For a PDF bill, send a screenshot.
-- It doesn't render the full printed UPN form, only its QR code.
+- The PDF form isn't a certified UPN form (see above).
 - Purpose codes outside the ZBS list are accepted with a warning, since the list is from 2019.
 - IBANs from countries other than Slovenia are checked for their check digits (ISO 13616), not for their country's
   exact length.
@@ -147,7 +155,7 @@ Every rule cites its source in the code. The sources, all published by Združenj
 - [x] Read, check and generate UPN QR codes; IBAN and reference checks
 - [x] One-click Claude Desktop extension (`.mcpb`)
 - [ ] PDF bills
-- [ ] The full printed UPN form as PDF
+- [x] The printable UPN form as PDF
 - [ ] Country-specific IBAN lengths
 
 What changed in each version: [releases](https://github.com/matejmohar/upn-qr-mcp/releases).
@@ -162,4 +170,5 @@ Setup, payment automations around your ERP, or a version for your company: get i
 
 ## License
 
-[MIT](LICENSE). Includes Project Nayuki's QR Code generator library (MIT).
+[MIT](LICENSE). Includes Project Nayuki's QR Code generator library (MIT), and the fonts Source Sans 3 and Liberation
+Mono (SIL Open Font License 1.1, see `fonts/`).

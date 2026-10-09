@@ -45,6 +45,10 @@
       "description": "Create a UPN QR code (PNG and SVG) for a payment order, after checking its fields."
     },
     {
+      "name": "generate_upn_form",
+      "description": "Create the printable UPN form as a PDF (A4 with the form at the bottom, or the form alone), with its QR code."
+    },
+    {
       "name": "validate_upn",
       "description": "Check a UPN payment order's fields against the ZBS standard."
     },
