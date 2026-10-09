@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "upn-qr-mcp",
   "display_name": "UPN QR",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Read, check and create Slovenian UPN payment orders and their UPN QR codes. Prepares payment data only; it never makes a payment. Works in Slovenian and English (slovenščina in angleščina).",
   "long_description": "Lets Claude read the UPN QR code on a bill (položnica) from a photo or scan, check every field against the Združenje bank Slovenije (ZBS) UPN QR standard, and create a UPN QR code (PNG and SVG) for an invoice that Slovenian banking apps can scan. It also checks IBANs (naming the Slovenian bank) and payment references (SI00–SI99 models and RF), and adds their check digits. Purpose codes (koda namena) come from the ZBS list. Everything runs on your computer: no account, no settings, no network requests. It never makes or sends a payment: check every order in your bank before you pay. This is an independent project, not affiliated with ZBS or any bank.",
   "author": {
@@ -43,6 +43,10 @@
     {
       "name": "generate_upn",
       "description": "Create a UPN QR code (PNG and SVG) for a payment order, after checking its fields."
+    },
+    {
+      "name": "generate_upn_form",
+      "description": "Create the printable UPN form as a PDF (A4 with the form at the bottom, or the form alone), with its QR code."
     },
     {
       "name": "validate_upn",

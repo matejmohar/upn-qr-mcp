@@ -1,9 +1,13 @@
+import { existsSync, writeFileSync } from "node:fs";
+import { dirname, extname, isAbsolute, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
-import { formatIban, SI_BANKS_SOURCE, validateIban } from "./iban.js";
+import { PAPERS, renderForm } from "./form.js";
+import { SI_BANKS_SOURCE, validateIban } from "./iban.js";
 import { encodeQr, IMAGE_TYPES, QrError, scanImage, sniffImageType, toPng, toSvg, UPN_QR_ECI, UPN_QR_VERSION } from "./qr.js";
 import { buildReference, ReferenceError, SI_MODELS, validateReference } from "./reference.js";
 import { decodeLatin2 } from "./upn/charset.js";
+import { formatFields } from "./upn/format.js";
 import { decodeUpn, isUpnPayload, NotUpnError, type FieldError } from "./upn/decode.js";
 import { encodeUpn, rawFields } from "./upn/encode.js";
 import { FIELDS, MAX_PAYLOAD_LENGTH, ORDER_TYPES, RULES, type OrderType, type UpnFields } from "./upn/fields.js";
@@ -15,6 +19,7 @@ export { validateIban } from "./iban.js";
 export { buildReference, validateReference } from "./reference.js";
 export { decodeUpn } from "./upn/decode.js";
 export { encodeUpn } from "./upn/encode.js";
+export { formatAmount } from "./upn/format.js";
 export type { UpnFields } from "./upn/fields.js";
 export { validateUpn } from "./upn/validate.js";
 
@@ -23,7 +28,8 @@ const INSTRUCTIONS = [
     "following the Združenje bank Slovenije (ZBS) standard. It never makes a payment: it only prepares and checks payment data, " +
     "which the user pays in their own bank.",
   "read_upn decodes a UPN QR code from a photo or scan (PNG or JPEG) and checks it. generate_upn makes a UPN QR code (PNG and SVG) " +
-    "from the fields, after checking them; it refuses invalid data and says what to fix. validate_upn checks fields without making a code.",
+    "from the fields, after checking them; it refuses invalid data and says what to fix. generate_upn_form makes the whole printable " +
+    "UPN form as a PDF in the same way. validate_upn checks fields without making a code.",
   "validate_iban checks an IBAN (and names the Slovenian bank); validate_reference checks a payment reference (SI00–SI99 models or RF); " +
     "build_reference adds the check digits to a reference.",
   "Purpose codes (koda namena, e.g. OTHR, GDSV, SUPP) are in the upn://purpose-codes resource; for an ordinary bill or invoice " +
@@ -45,7 +51,11 @@ const OFFLINE = {
 
 interface ToolResult {
   [key: string]: unknown;
-  content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
+  content: (
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string }
+    | { type: "resource"; resource: { uri: string; mimeType: string; blob: string } }
+  )[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
@@ -136,29 +146,6 @@ function pickFields(args: Record<string, unknown>): UpnFields {
   return fields as UpnFields;
 }
 
-/** Navodilo o obliki, vsebini in uporabi UPN QR, 3.2.1: "#.##0,00", printed as "***1.234,50". */
-export function formatAmount(amount: number): string {
-  const [whole, cents] = amount.toFixed(2).split(".");
-  return `***${whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${cents}`;
-}
-
-/** Navodilo 3.2.2 (DD.MM.LLLL) and 3.2.3–3.2.4 (IBAN in fours; SI reference as model, space, content). */
-function formatted(fields: UpnFields): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (fields.amount !== undefined) out.amount = formatAmount(fields.amount);
-  if (fields.payerIban) out.payerIban = formatIban(fields.payerIban);
-  if (fields.recipientIban) out.recipientIban = formatIban(fields.recipientIban);
-  for (const key of ["payerReference", "recipientReference"] as const) {
-    const ref = fields[key] ? validateReference(fields[key]).normalized : undefined;
-    if (ref) out[key] = ref.startsWith("RF") ? formatIban(ref) : `${ref.slice(0, 4)} ${ref.slice(4)}`;
-  }
-  for (const key of ["paymentDate", "dueDate"] as const) {
-    const date = fields[key];
-    if (date) out[key] = date.split("-").reverse().join(".");
-  }
-  return out;
-}
-
 /** The fields as they will be stored: IBANs and references without spaces, as the QR code has them. */
 function normalizedFields(fields: UpnFields): UpnFields {
   const raw = rawFields(fields);
@@ -167,6 +154,46 @@ function normalizedFields(fields: UpnFields): UpnFields {
     if ((def.kind === "iban" || def.kind === "reference") && raw[def.position - 1]) (out[def.name] as string) = raw[def.position - 1]!;
   }
   return out;
+}
+
+/** Checks the fields and encodes the QR code, or returns the refusal to send back. */
+type Prepared =
+  | { refused: ToolResult }
+  | { fields: UpnFields; check: ReturnType<typeof validateUpn>; payload: string; matrix: ReturnType<typeof encodeQr> };
+
+function prepare(args: Record<string, unknown> & { orderType?: OrderType }, what: string): Prepared {
+  const fields = pickFields(args);
+  const check = validateUpn(fields, { orderType: args.orderType });
+  if (!check.valid) {
+    const lines = check.errors.map((e) => `- ${e.field}: ${e.message}`).join("\n");
+    const refused: ToolResult = { isError: true, content: [{ type: "text", text: `No ${what} was made; fix these fields first:\n${lines}` }] };
+    return { refused };
+  }
+  const { payload, bytes } = encodeUpn(fields);
+  if (bytes.length > MAX_PAYLOAD_LENGTH) throw new QrError(`The data is ${bytes.length} characters; a UPN QR code holds ${MAX_PAYLOAD_LENGTH}.`);
+  return { fields, check, payload, matrix: encodeQr(bytes) };
+}
+
+function formTitle(fields: UpnFields): string {
+  return ["UPN QR", fields.recipientName, fields.purpose].filter(Boolean).join(" – ");
+}
+
+/** An absolute path to a .pdf file that doesn't exist yet, in a folder that does. */
+function pdfTarget(path: string): string {
+  if (!isAbsolute(path)) throw new ToolInputError(`outputPath must be an absolute path; got ${JSON.stringify(path)}.`);
+  const target = resolve(path);
+  if (extname(target).toLowerCase() !== ".pdf") throw new ToolInputError("outputPath must end in .pdf.");
+  if (existsSync(target)) throw new ToolInputError(`${target} already exists; choose another name. Nothing was overwritten.`);
+  if (!existsSync(dirname(target))) throw new ToolInputError(`The folder ${dirname(target)} doesn't exist.`);
+  return target;
+}
+
+function writePdf(target: string, pdf: Uint8Array): void {
+  try {
+    writeFileSync(target, pdf, { flag: "wx" });
+  } catch (error) {
+    throw new ToolInputError(`Couldn't save ${target}: ${(error as Error).message}`);
+  }
 }
 
 function base64(input: string): Uint8Array {
@@ -283,27 +310,83 @@ export function createServer(): McpServer {
     },
     async (args) => {
       try {
-        const fields = pickFields(args);
-        const check = validateUpn(fields, { orderType: args.orderType });
-        if (!check.valid) {
-          const lines = check.errors.map((e) => `- ${e.field}: ${e.message}`).join("\n");
-          return { isError: true, content: [{ type: "text" as const, text: `No QR code was made; fix these fields first:\n${lines}` }] };
-        }
-        const { payload, bytes } = encodeUpn(fields);
-        if (bytes.length > MAX_PAYLOAD_LENGTH) throw new QrError(`The data is ${bytes.length} characters; a UPN QR code holds ${MAX_PAYLOAD_LENGTH}.`);
-        const matrix = encodeQr(bytes);
+        const prepared = prepare(args, "QR code");
+        if ("refused" in prepared) return prepared.refused;
+        const { fields, check, payload, matrix } = prepared;
         const png = Buffer.from(toPng(matrix, args.pngScale)).toString("base64");
         return await runStructured(
           () => ({
             payload,
             orderType: check.orderType,
             fields: normalizedFields(fields),
-            formatted: formatted(fields),
+            formatted: formatFields(fields),
             warnings: check.warnings,
             png,
             svg: toSvg(matrix),
           }),
           [{ type: "image", data: png, mimeType: "image/png" }],
+        );
+      } catch (error) {
+        return { isError: true, content: [{ type: "text" as const, text: describeError(error) }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "generate_upn_form",
+    {
+      title: "Generate printable UPN form (PDF)",
+      description:
+        "Makes the whole UPN QR payment form as a PDF, laid out as in the ZBS technical standard (receipt on the left, order with the " +
+        "QR code on the right), filled in with the order's data. Checks the fields first like generate_upn and refuses invalid data. " +
+        "paper \"a4\" (default) puts the form at the bottom of an A4 page, leaving room above for a letter; \"form\" makes a 210 × 99 mm page. " +
+        "With outputPath the PDF is saved there (it never overwrites a file); otherwise it is returned as an embedded PDF. " +
+        "It is a printout for the payer's convenience, not a certified form: ZBS has issuers get their forms checked before sending them out. " +
+        "It prepares payment data only; it pays nothing.",
+      inputSchema: z.object({
+        ...upnFieldShape,
+        orderType: orderType.default("payment"),
+        paper: z.enum(PAPERS).default("a4").describe("a4: form at the bottom of an A4 page (ZBS \"UPN QR A4 z dopisom\"). form: just the 210 × 99 mm form."),
+        outputPath: z
+          .string()
+          .optional()
+          .describe("Absolute path of a .pdf file to save, e.g. /Users/ana/Documents/UPN-2026-104.pdf. The folder must exist; an existing file is not overwritten."),
+      }),
+      outputSchema: z.object({
+        payload: z.string().describe("The text in the QR code."),
+        orderType: z.enum(ORDER_TYPES),
+        fields: fieldsOutput.describe("The fields as stored: IBANs and references without spaces."),
+        formatted: formattedOutput,
+        warnings,
+        paper: z.enum(PAPERS),
+        bytes: z.number().int().describe("Size of the PDF."),
+        savedTo: z.string().optional().describe("Where the PDF was saved, when outputPath was given."),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => {
+      try {
+        const prepared = prepare(args, "PDF");
+        if ("refused" in prepared) return prepared.refused;
+        const { fields, check, payload, matrix } = prepared;
+        const target = args.outputPath ? pdfTarget(args.outputPath) : undefined;
+        const pdf = await renderForm(fields, matrix, { paper: args.paper, title: formTitle(fields) });
+        if (target) writePdf(target, pdf);
+        const extra: ToolResult["content"] = target
+          ? []
+          : [{ type: "resource", resource: { uri: "upn://form.pdf", mimeType: "application/pdf", blob: Buffer.from(pdf).toString("base64") } }];
+        return await runStructured(
+          () => ({
+            payload,
+            orderType: check.orderType,
+            fields: normalizedFields(fields),
+            formatted: formatFields(fields),
+            warnings: check.warnings,
+            paper: args.paper,
+            bytes: pdf.length,
+            savedTo: target,
+          }),
+          extra,
         );
       } catch (error) {
         return { isError: true, content: [{ type: "text" as const, text: describeError(error) }] };
@@ -402,7 +485,7 @@ function readOne(code: Awaited<ReturnType<typeof scanImage>>[number], wanted: Or
     orderType: check.orderType,
     errors,
     warnings: [...warnings, ...check.warnings],
-    formatted: formatted(decoded.fields),
+    formatted: formatFields(decoded.fields),
     payload,
     qr: { version: code.version, ecLevel: code.ecLevel, eci: code.hasEci },
   };
