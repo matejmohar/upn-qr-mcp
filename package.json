@@ -1,6 +1,6 @@
 {
   "name": "upn-qr-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Model Context Protocol (MCP) server for Slovenian UPN payment orders — let Claude and other AI assistants read, validate and generate UPN QR codes.",
   "keywords": [
     "mcp",

@@ -28,12 +28,23 @@ run("npx", ["mcpb", "pack", stage, out]);
 console.log(`\nBuilt ${out}`);
 
 /**
- * Drops files the server never loads at runtime: source maps, type declarations, and the parts of zxing-wasm other
- * than the ES reader and its .wasm (the full and writer builds alone are 2 MB of WebAssembly).
+ * Drops files the server never loads at runtime: source maps, type declarations, the parts of zxing-wasm other
+ * than the ES reader and its .wasm (the full and writer builds alone are 2 MB of WebAssembly), and the builds of
+ * pdf-lib and its helpers other than the CommonJS ones Node loads through their "main", and zod's TypeScript sources.
  */
 function prune(dir) {
-  const zxing = `${dir}/zxing-wasm/dist`;
-  for (const d of ["full", "writer", "cjs", "iife", "miniprogram"]) rmSync(`${zxing}/${d}`, { recursive: true, force: true });
+  const unused = {
+    "zxing-wasm/dist": ["full", "writer", "cjs", "iife", "miniprogram"],
+    "pdf-lib": ["dist", "es", "src", "ts3.4", "yarn.lock"],
+    "@pdf-lib/fontkit": ["es", "lib", "dist/fontkit.es.js", "dist/fontkit.es.min.js", "dist/fontkit.umd.min.js"],
+    "@pdf-lib/standard-fonts": ["es", "dist"],
+    "@pdf-lib/upng": ["dist", "UPNG.js", "yarn.lock"],
+    pako: ["dist"],
+    zod: ["src"],
+  };
+  for (const [pkg, paths] of Object.entries(unused)) {
+    for (const p of paths) rmSync(`${dir}/${pkg}/${p}`, { recursive: true, force: true });
+  }
   for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (entry.isFile() && /\.(map|d\.ts|d\.mts|d\.cts)$/.test(entry.name)) rmSync(join(entry.parentPath, entry.name));
   }
