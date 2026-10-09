@@ -1,0 +1,66 @@
+{
+  "name": "upn-qr-mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol (MCP) server for Slovenian UPN payment orders — let Claude and other AI assistants read, validate and generate UPN QR codes.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "upn",
+    "upn-qr",
+    "qr-code",
+    "payment-order",
+    "iban",
+    "slovenia",
+    "claude",
+    "ai"
+  ],
+  "license": "MIT",
+  "author": "Matej Mohar <matej@mohar.dev>",
+  "homepage": "https://martej.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matejmohar/upn-qr-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/matejmohar/upn-qr-mcp/issues"
+  },
+  "type": "module",
+  "bin": {
+    "upn-qr-mcp": "dist/index.js"
+  },
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "pack:mcpb": "node scripts/build-mcpb.mjs",
+    "version": "node scripts/sync-version.mjs && git add manifest.json src/version.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.3.1",
+    "zod": "^4.2.0",
+    "zxing-wasm": "^3.1.5"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "^2.1.2",
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.0",
+    "vitest": "^5.0.3"
+  }
+}
